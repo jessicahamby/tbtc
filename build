@@ -1,0 +1,54 @@
+#!/bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+# Make data directory if it doesn't exist already
+mkdir -p "$DIR/.data"
+
+# shellcheck source=scripts/create_env.bash
+. "$DIR/scripts/create_env.bash"
+
+# try to detect and warn user of duplicate variables
+. "$DIR/scripts/detect_duplicate_vars.bash"
+
+# try to detect and warn user of old volume mounts
+. "$DIR/scripts/detect_old_data.bash"
+
+# Get list of overrides
+OVERRIDE_OPTIONS=()
+shopt -s nullglob
+for f in "$DIR/overrides"/*.yml
+do
+    OVERRIDE_OPTIONS+=(-f)
+    OVERRIDE_OPTIONS+=("$f")
+done
+
+# Setup Docker Compose command
+# Pass in 1 for sudo
+set_compose_command() {
+    if $__SUDO docker compose &>/dev/null; then
+        if [ "$1" == 1 ]; then
+            DOCKER_COMPOSE_CMD=(sudo docker compose)
+        else
+            DOCKER_COMPOSE_CMD=(docker compose)
+        fi
+    elif $__SUDO docker-compose &>/dev/null; then
+        if [ "$1" == 1 ]; then
+            DOCKER_COMPOSE_CMD=(sudo docker-compose)
+        else
+            DOCKER_COMPOSE_CMD=(docker-compose)
+        fi
+    else
+        echo "Please make sure Docker Compose is installed"
+    fi
+}
+
+if docker info &>/dev/null; then
+    set_compose_command
+else
+    set_compose_command 1
+fi
+
+exec "${DOCKER_COMPOSE_CMD[@]}" -f docker-compose.yml "${OVERRIDE_OPTIONS[@]}" build \
+     --build-arg LOCAL_USER_ID="$(id -u "${USER:?}")" \
+     --build-arg LOCAL_GROUP_ID="$(id -g "${USER:?}")" "$@"

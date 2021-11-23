@@ -1,0 +1,139 @@
+#!/bin/bash
+
+# Check for verbose
+if [ "$1" == "-v" ]; then
+    VERBOSE=true
+    shift 1
+fi
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+HELP="Start services or run a command with overrides enabled.
+Example: \`./start logs -f bitcoin\`
+
+Commands:
+  restart, up, logs, ps, stop, exec, kill, rm, run, config      - Docker Compose commands
+                                                                  Example: ./start logs -f bitcoin
+
+  jm                                                            - Shortcut command to scripts/joinmarket.bash
+                                                                  For nested segwit wallets
+                                                                  Example: ./start jm display
+
+  jm-bech32                                                     - Shortcut command to scripts/joinmarket-bech32.bash
+                                                                  For native segwit wallets
+                                                                  Example: ./start jm-bech32 display
+
+  lnd                                                           - Shortcut command to scripts/lnd.bash
+                                                                  Example: ./start lnd unlock
+
+  macaroons                                                     - Shortcut command to scripts/macaroons.bash
+                                                                  DEPRECATED: Use \`./start lnd macaroons\`
+
+  onions                                                        - Shortcut command to scripts/onions.bash
+
+  help                                                          - Displays this message.
+
+The default command (no parameters) is \`up -d\`"
+
+# Make data directory if it doesn't exist already
+mkdir -p "$DIR/.data"
+
+# shellcheck source=scripts/create_env.bash
+. "$DIR/scripts/create_env.bash"
+
+# try to detect and warn user of duplicate variables
+. "$DIR/scripts/detect_duplicate_vars.bash"
+
+# try to detect and warn user of old volume mounts
+. "$DIR/scripts/detect_old_data.bash"
+
+# Start LND, Bitcoin and Tor with added overrides
+CMD=""
+case "$1" in
+    "restart" | "up" | "logs" | "ps" | "stop" | "exec" | "kill" | "rm" | "run" | "config" )
+        CMD=("$@")
+        ;;
+    "docker-compose")
+        CMD=("${@:2}")
+        ;;
+    "jm")
+        scripts/joinmarket.bash "${@:2}"
+        exit "$?"
+        ;;
+    "jm-bech32")
+        DAEMON_SERVICE=joinmarketd-bech32 scripts/joinmarket.bash "${@:2}"
+        exit "$?"
+        ;;
+    "onions")
+        scripts/onions.bash "${@:2}"
+        exit "$?"
+        ;;
+    "lnd" )
+        scripts/lnd.bash "${@:2}"
+        exit "$?"
+        ;;
+    "macaroons")
+        scripts/macaroons.bash "${@:2}"
+        exit "$?"
+        ;;
+    "bos" )
+        scripts/bos.bash "${@:2}"
+        exit "$?"
+        ;;
+    "")
+        CMD=(up -d)
+        ;;
+    "help" | "--help" | "-h")
+        echo "$HELP"
+        exit 0
+        ;;
+    * )
+        echo "Command '${*:1}' not recognized."
+        echo "$HELP"
+        exit 1
+        ;;
+
+esac
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+# Get list of overrides
+OVERRIDE_OPTIONS=()
+shopt -s nullglob
+for f in "$DIR/overrides"/*.yml
+do
+    OVERRIDE_OPTIONS+=(-f)
+    OVERRIDE_OPTIONS+=("$f")
+done
+
+# Setup Docker Compose command
+# Pass in 1 for sudo
+set_compose_command() {
+    if $__SUDO docker compose &>/dev/null; then
+        if [ "$1" == 1 ]; then
+            DOCKER_COMPOSE_CMD=(sudo docker compose)
+        else
+            DOCKER_COMPOSE_CMD=(docker compose)
+        fi
+    elif $__SUDO docker-compose &>/dev/null; then
+        if [ "$1" == 1 ]; then
+            DOCKER_COMPOSE_CMD=(sudo docker-compose)
+        else
+            DOCKER_COMPOSE_CMD=(docker-compose)
+        fi
+    else
+        echo "Please make sure Docker Compose is installed"
+    fi
+}
+
+if docker info &>/dev/null; then
+    set_compose_command
+else
+    set_compose_command 1
+fi
+
+# Start docker-compose with override options
+if [ "$VERBOSE" ]; then
+   echo "${DOCKER_COMPOSE_CMD[@]}" -f docker-compose.yml "${OVERRIDE_OPTIONS[@]}" "${CMD[@]}"
+fi
+cd "$DIR" && exec "${DOCKER_COMPOSE_CMD[@]}" -f docker-compose.yml "${OVERRIDE_OPTIONS[@]}" "${CMD[@]}"

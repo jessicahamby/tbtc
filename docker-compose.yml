@@ -1,0 +1,16 @@
+version: '3.8'
+
+# Only Tor is currently required.
+# Even Tor can be changed by adding an override in the 'override' directory.
+# Other services such as bitcoind and lnd require an override.
+# Example: `cp overrides/bitcoin.yml.tpl overrides/bitcoin.yml`
+services:
+  tor:
+    build:
+      context: docker/tor
+    restart: always
+    volumes:
+      - ${_HOST_TOR_DATA:?}:${_GUEST_TOR_DATA:?}
+      - ${_HOST_TOR_CONFIG:?}:${_GUEST_TOR_CONFIG:?}
+    env_file:
+      - .env
